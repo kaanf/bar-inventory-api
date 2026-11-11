@@ -1,0 +1,58 @@
+name: API CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  api-check:
+    name: API Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate repository structure
+        run: |
+          test -f README.md
+          test -f .gitignore
+          test -f .github/workflows/ci.yml
+          echo "Repository structure validated"
+
+      - name: Validate secret exclusions in .gitignore
+        run: |
+          for pattern in '.env' '*.pem' '*.key' '*.p12' '*.jks' '*.keystore'; do
+            grep -qxF "$pattern" .gitignore || { echo "::error::.gitignore is missing '$pattern'"; exit 1; }
+          done
+          echo "Secret exclusions present"
+
+      - name: Check for committed secret files
+        run: |
+          found=$(git ls-files | grep -Ei '(^|/)\.env($|\.)|\.(pem|key|p12|jks|keystore)$' || true)
+          if [ -n "$found" ]; then
+            echo "::error::Secret-like files are tracked:"
+            echo "$found"
+            exit 1
+          fi
+          echo "No secret-like files tracked"
+
+      - name: Report build status
+        run: |
+          if [ -f build.gradle.kts ] || [ -f settings.gradle.kts ]; then
+            echo "::warning::Gradle project detected, but this workflow does not build it yet"
+          else
+            echo "No Spring Boot project yet; compilation and tests are not run"
+          fi
